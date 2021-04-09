@@ -2,7 +2,7 @@
 
 <p align="center"><img width="100" src="https://upload.wikimedia.org/wikipedia/commons/thumb/1/11/TensorFlowLogo.svg/225px-TensorFlowLogo.svg.png" />  <img width="100" src="https://media-thumbs.golden.com/OLqzmrmwAzY1P7Sl29k2T9WjJdM=/200x200/smart/golden-storage-production.s3.amazonaws.com/topic_images/e08914afa10a4179893eeb07cb5e4713.png" /></p>
 
-`nlp-tutorial` is a tutorial for who is studying NLP(Natural Language Processing) using **Pytorch**. Most of the models in NLP were implemented with less than **100 lines** of code.(except comments or blank lines)
+`nlp-tutorial`是一个使用**Pytorch**学习NLP（自然语言处理）的教程。NLP中的大部分模型都是用不到**100行**的代码实现的（标注或空行除外）。
 
 - [08-14-2020] Old TensorFlow v1 code is archived in [the archive folder](archive). For beginner readability, only pytorch version 1.0 or higher is supported.
 
