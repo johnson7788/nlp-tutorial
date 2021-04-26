@@ -7,9 +7,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
 
-# S: Symbol that shows starting of decoding input
-# E: Symbol that shows starting of decoding output
-# P: Symbol that will fill in blank sequence if current batch data size is short than time steps
+# S: 表示解码输入开始的符号 
+# E: 表示解码输出开始的符号 
+# P: 如果当前的批次数据量小于时间步数，将填补空白序列的符号 ，P表示Padding的位置
 
 def make_batch():
     input_batch = [np.eye(n_class)[[word_dict[n] for n in sentences[0].split()]]]
@@ -73,15 +73,23 @@ class Attention(nn.Module):
         return torch.dot(dec_output.view(-1), score.view(-1))  # inner product make scalar value
 
 if __name__ == '__main__':
-    n_step = 5 # number of cells(= number of Step)
-    n_hidden = 128 # number of hidden units in one cell
-
+    # cell数， 即时间步数
+    n_step = 5
+    #一个cell中的隐藏单元数
+    n_hidden = 128
+    #  我们的目标是让机器学会 让这个阿拉伯语翻译成英语， ich mochte ein bier  --> S i want a beer
+    # ich mochte ein bier P 代表输入，例如要翻译的句子， P是Padding的首字母，即我的句子不是5个长度的时间步，但是我要变成5个， 所以做了Padding
     sentences = ['ich mochte ein bier P', 'S i want a beer', 'i want a beer E']
-
+    # 生成字典，这里是用的一个字典保存了源语言和目标语言，实际上应该源语言和目标语言各一个单词表
+    # 变成单词的列表, 格式是，['ich', 'mochte', 'ein', 'bier', 'P', 'S', 'i', 'want', 'a', 'beer', 'i', 'want', 'a', 'beer', 'E']
     word_list = " ".join(sentences).split()
+    # 去重
     word_list = list(set(word_list))
+    # 生成单词表 {'ich': 0, 'want': 1, 'P': 2, 'i': 3, 'S': 4, 'ein': 5, 'a': 6, 'mochte': 7, 'beer': 8, 'bier': 9, 'E': 10}
     word_dict = {w: i for i, w in enumerate(word_list)}
+    # 生成id到单词的映射，即单词表的逆向映射
     number_dict = {i: w for i, w in enumerate(word_list)}
+    # 预测时softmax对每个时间步预测最大的概率，这个是于预测单词表中概率最大的那个, eg, n_class: 11
     n_class = len(word_dict)  # vocab list
 
     # hidden : [num_layers(=1) * num_directions(=1), batch_size, n_hidden]

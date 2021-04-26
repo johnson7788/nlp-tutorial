@@ -8,9 +8,9 @@ import torch.nn as nn
 import torch.optim as optim
 import matplotlib.pyplot as plt
 
-# S: Symbol that shows starting of decoding input
-# E: Symbol that shows starting of decoding output
-# P: Symbol that will fill in blank sequence if current batch data size is short than time steps
+# S: 表示解码输入开始的符号
+# E: 表示解码输出开始的符号
+# P: 如果当前的批次数据量小于时间步数，将填补空白序列的符号 ，P表示Padding的位置
 
 def make_batch(sentences):
     input_batch = [[src_vocab[n] for n in sentences[0].split()]]
@@ -176,13 +176,15 @@ def showgraph(attn):
     plt.show()
 
 if __name__ == '__main__':
+    # 我们的目标是让机器学会 让这个阿拉伯语翻译成英语， ich mochte ein bier  --> S i want a beer
+    # ich mochte ein bier P 代表输入，例如要翻译的句子， P是Padding的首字母，即我的句子不是5个长度的时间步，但是我要变成5个， 所以做了Padding
     sentences = ['ich mochte ein bier P', 'S i want a beer', 'i want a beer E']
 
     # Transformer Parameters
-    # Padding Should be Zero
+    # P 代表Padding， 我们Padding对应的ID是0，源序列单词表
     src_vocab = {'P': 0, 'ich': 1, 'mochte': 2, 'ein': 3, 'bier': 4}
     src_vocab_size = len(src_vocab)
-
+    # 目标序列单词表
     tgt_vocab = {'P': 0, 'i': 1, 'want': 2, 'a': 3, 'beer': 4, 'S': 5, 'E': 6}
     number_dict = {i: w for i, w in enumerate(tgt_vocab)}
     tgt_vocab_size = len(tgt_vocab)
