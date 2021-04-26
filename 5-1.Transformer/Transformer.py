@@ -96,13 +96,17 @@ def get_attn_pad_mask(seq_q, seq_k):
 def get_attn_subsequent_mask(seq):
     """
     序列部分的注意力
-    :param seq:
+    :param seq: tensor([[5, 1, 2, 3, 4]]), 形状 【1，5】， batch_size, seq_len
     :type seq:
     :return:
     :rtype:
     """
+    # 设定下注意力的形状
     attn_shape = [seq.size(0), seq.size(1), seq.size(1)]
+    # eg: subsequent_mask : [[[0. 1. 1. 1. 1.],  [0. 0. 1. 1. 1.],  [0. 0. 0. 1. 1.],  [0. 0. 0. 0. 1.],  [0. 0. 0. 0. 0.]]]
+    # 初始化一个注意力形状的上三角矩阵，因为我们从头往后预测，所以模型只有预测出来后才能看到单词, subsequent_mask, shape: torch.Size([1, 5, 5])
     subsequent_mask = np.triu(np.ones(attn_shape), k=1)
+    # 形状不变，转出tensor格式
     subsequent_mask = torch.from_numpy(subsequent_mask).byte()
     return subsequent_mask
 
@@ -116,21 +120,30 @@ class ScaledDotProductAttention(nn.Module):
     def forward(self, Q, K, V, attn_mask):
         """
 
-        :param Q:
+        :param Q: torch.Size([1, 8, 5, 64]),  batch_size, n_heads, seq_len, q_dimension
         :type Q:
-        :param K:
+        :param K: torch.Size([1, 8, 5, 64])
         :type K:
-        :param V:
+        :param V: torch.Size([1, 8, 5, 64])
         :type V:
         :param attn_mask:
         :type attn_mask:
-        :return:
+        :return: context 维度 torch.Size([1, 8, 5, 64])，  attn 维度 torch.Size([1, 8, 5, 5]),
         :rtype:
         """
+        #  K.transpose(-1, -2)之后的维度为torch.Size([1, 8, 64, 5]), matmul是矩阵相乘
+        # torch.matmul(Q, K.transpose(-1, -2)) --> torch.Size([1, 8, 5, 5])， [1, 8, 5, 64] * [1, 8, 64, 5] 点积后的维度为 -->[1, 8, 5, 5], 即最后2维矩阵相乘
+        # np.sqrt(d_k) : 8.0， 缩放因子
+        # scores最终的维度是 [1, 8, 5, 5]
         scores = torch.matmul(Q, K.transpose(-1, -2)) / np.sqrt(d_k) # scores : [batch_size x n_heads x len_q(=len_k) x len_k(=len_q)]
-        scores.masked_fill_(attn_mask, -1e9) # Fills elements of self tensor with value where mask is one.
+        # 这里用到了mask，即mask的地方分数，我们是不要的，这里设置了一个很小的值,-1e9表示 -1000000000.0
+        # 维度不变, 还是[1, 8, 5, 5]，这里是padding的位置，即最后一个位置时很小的值
+        scores.masked_fill_(attn_mask, -1e9)
+        # 计算attention值，softmax，在最后一个维度计算, attn的维度torch.Size([1, 8, 5, 5]) ，即每个单词位置的注意力，也可以说成关注点
         attn = nn.Softmax(dim=-1)(scores)
+        # 和V矩阵相乘 context 形状 torch.Size([1, 8, 5, 64]), 即对V来说，哪些位置是值得注意的，意思是对于输入句子来说，每个单词相对于整个句子来说的重要性
         context = torch.matmul(attn, V)
+        # context 维度 torch.Size([1, 8, 5, 64])，  attn 维度 torch.Size([1, 8, 5, 5]),
         return context, attn
 
 class MultiHeadAttention(nn.Module):
@@ -153,15 +166,15 @@ class MultiHeadAttention(nn.Module):
     def forward(self, Q, K, V, attn_mask):
         """
 
-        :param Q:
+        :param Q:  输入维度， torch.Size([1, 5, 512])
         :type Q:
-        :param K:
+        :param K:  torch.Size([1, 5, 512])
         :type K:
-        :param V:
+        :param V:  torch.Size([1, 5, 512])
         :type V:
-        :param attn_mask:
+        :param attn_mask:  torch.Size([1, 5, 5]), [batch_size, seq_len,seq_len]
         :type attn_mask:
-        :return:
+        :return: new_output: [1, 5, 512] [batch_size, 序列长度, 模型维度], attn: torch.Size([1, 8, 5, 5]), [batch_size, head数量, 序列长度，序列长度]
         :rtype:
         """
         # residual 代表的是论文中的残差的意思，即residual+attention后的输出作为下一个阶段的输入
@@ -169,17 +182,26 @@ class MultiHeadAttention(nn.Module):
         # q: [batch_size x len_q x d_model], k: [batch_size x len_k x d_model], v: [batch_size x len_k x d_model]
         residual, batch_size = Q, Q.size(0)
         # (B, S, D) -proj-> (B, S, D) -split-> (B, S, H, W) -trans-> (B, H, S, W)
+        # view是改变形状，self.W_Q(Q)是计算Q后得到一个结果,得到的形状是torch.Size([1, 5, 512]), 然后view后，变成形状torch.Size([1, 5, 8, 64]),相当于拆出来的头的数量
+        #  然后交互1和2的维度，变成了torch.Size([1, 8, 5, 64]), 即 [batch_size, n_heads, seq_len, K的维度]
+        # 现在计算出8个头的q,k,v
         q_s = self.W_Q(Q).view(batch_size, -1, n_heads, d_k).transpose(1,2)  # q_s: [batch_size x n_heads x len_q x d_k]
         k_s = self.W_K(K).view(batch_size, -1, n_heads, d_k).transpose(1,2)  # k_s: [batch_size x n_heads x len_k x d_k]
         v_s = self.W_V(V).view(batch_size, -1, n_heads, d_v).transpose(1,2)  # v_s: [batch_size x n_heads x len_k x d_v]
-
+        # torch.Size([1, 5, 5]) --> torch.Size([1, 8, 5, 5])， 因为每个头都是一样的Mask计算，就是某些部分不计算注意力
         attn_mask = attn_mask.unsqueeze(1).repeat(1, n_heads, 1, 1) # attn_mask : [batch_size x n_heads x len_q x len_k]
-
+        # 开始计算Q，K，V, 缩放点积注意力，论文上注意力的计算公式，即公式1
         # context: [batch_size x n_heads x len_q x d_v], attn: [batch_size x n_heads x len_q(=len_k) x len_k(=len_q)]
         context, attn = ScaledDotProductAttention()(q_s, k_s, v_s, attn_mask)
+        #  得到最后的注意力，和经过注意力计算的V的到的context，  context.transpose(1, 2)得到的维度, torch.Size([1, 5, 8, 64])
+        # contiguous没啥太大作用，就是保住你进行view更改形状前，保住这个矩阵的内存是连续的，不会出错
+        # context的形状变成从 torch.Size([1, 5, 8, 64])--> torch.Size([1, 5, 512]), 即，合并了nheads, 就是合并了8个头
         context = context.transpose(1, 2).contiguous().view(batch_size, -1, n_heads * d_v) # context: [batch_size x len_q x n_heads * d_v]
+        #output的形状 torch.Size([1, 5, 512]) --> torch.Size([1, 5, 512])
         output = self.linear(context)
-        return self.layer_norm(output + residual), attn # output: [batch_size x len_q x d_model]
+        # norm操作和残差, shape，torch.Size([1, 5, 512])， 做完残差和层归一化后的形状不变
+        new_output = self.layer_norm(output + residual)
+        return new_output, attn # output: [batch_size x len_q x d_model]
 
 class PoswiseFeedForwardNet(nn.Module):
     def __init__(self):
@@ -196,16 +218,24 @@ class PoswiseFeedForwardNet(nn.Module):
 
     def forward(self, inputs):
         """
-
-        :param inputs:
+        输出的形状应该是不变的，和输入的形状相同
+        :param inputs: torch.Size([1, 5, 512])
         :type inputs:
-        :return:
+        :return:  返回维度是[1, 5, 512]，
         :rtype:
         """
+        # 也是做了残差结构
         residual = inputs # inputs : [batch_size, len_q, d_model]
+        # 做卷积后用Relu激活，激活函数不改变形状, inputs.transpose(1, 2): 调换维度1和2的位置，torch.Size([1, 512, 5])
+        # self.conv1(inputs.transpose(1, 2)) 卷积后的维度变化 torch.Size([1, 512, 5]) --> torch.Size([1, 2048, 5]), 通道数从512变成2048，这里的意义是，512维度的特征变成2048个特征
+        # output的维度是[1, 2048, 5]
         output = nn.ReLU()(self.conv1(inputs.transpose(1, 2)))
+        # output在做一次卷积, self.conv2(output)后的形状变化:  [1, 2048, 5] --> .Size([1, 512, 5]) 通道数由2048变回512
+        # 然后调换1，2维度，output的形状为 torch.Size([1, 5, 512])
         output = self.conv2(output).transpose(1, 2)
-        return self.layer_norm(output + residual)
+        # 残差部分和层归一化，维度不变，new_output [1, 5, 512]
+        new_output = self.layer_norm(output + residual)
+        return new_output
 
 class EncoderLayer(nn.Module):
     def __init__(self):
@@ -225,12 +255,14 @@ class EncoderLayer(nn.Module):
         :type enc_inputs:
         :param enc_self_attn_mask:  注意力的mask，形状: torch.Size([1, 5, 5]), batch_size, seq_len, seq_len
         :type enc_self_attn_mask:
-        :return:
+        :return: enc_outputs: ([1, 5, 512]),  [batch_size, len_q , d_model],   attn: torch.Size([1, 8, 5, 5]), 注意力的维度[batch_size, n_heads, seq_len, seq_len]
         :rtype:
         """
-        # 这里Q和K和V都是输入的序列嵌入后的向量，
+        # 这里Q和K和V都是输入的序列嵌入后的向量，enc_inputs的维度torch.Size([1, 5, 512])
         enc_outputs, attn = self.enc_self_attn(Q=enc_inputs, K=enc_inputs, V=enc_inputs, attn_mask=enc_self_attn_mask) # enc_inputs to same Q,K,V
+        # attention的第二部分计算，FFN， FeedForward部分, enc_outputs的维度 torch.Size([1, 5, 512])
         enc_outputs = self.pos_ffn(enc_outputs) # enc_outputs: [batch_size x len_q x d_model]
+        # 经过一层的计算后，输入enc_inputs和输出的enc_outputs维度相同，enc_outputs还会作为下一层的输入
         return enc_outputs, attn
 
 class DecoderLayer(nn.Module):
@@ -296,11 +328,12 @@ class Encoder(nn.Module):
         # self-attention的目标是计算一句话中每2个字之间的注意力，加入句子enc_inputs是: I love you ,就会两两计算： I 和love的注意力，I和you的注意力， love和you的注意力
         # 这里enc_self_attn_mask表示的是我这个句子中哪些位置是不需要计算注意力的，不需要计算的地方就是Mask掉的地方
         enc_self_attn_mask = get_attn_pad_mask(enc_inputs, enc_inputs)
-        # 存储每层的注意力结果
+        # 存储每层的注意力结果， 绘图用, eg：一共6层，存储6次注意力，每个注意力的维度是torch.Size([1, 8, 5, 5])
         enc_self_attns = []
         for layer in self.layers:
             # 循环每层,enc_outputs的维度： torch.Size([1, 5, 512]), enc_self_attn_mask的维度
             enc_outputs, enc_self_attn = layer(enc_outputs, enc_self_attn_mask)
+            # 每次的attention都取出来，我们以后绘图用, enc_outputs做为下一层的而输入
             enc_self_attns.append(enc_self_attn)
         return enc_outputs, enc_self_attns
 
@@ -318,11 +351,26 @@ class Decoder(nn.Module):
         self.layers = nn.ModuleList([DecoderLayer() for _ in range(n_layers)])
 
     def forward(self, dec_inputs, enc_inputs, enc_outputs): # dec_inputs : [batch_size x target_len]
-        dec_outputs = self.tgt_emb(dec_inputs) + self.pos_emb(torch.LongTensor([[5,1,2,3,4]]))
-        dec_self_attn_pad_mask = get_attn_pad_mask(dec_inputs, dec_inputs)
-        dec_self_attn_subsequent_mask = get_attn_subsequent_mask(dec_inputs)
-        dec_self_attn_mask = torch.gt((dec_self_attn_pad_mask + dec_self_attn_subsequent_mask), 0)
+        """
 
+        :param dec_inputs:  tensor([[5, 1, 2, 3, 4]])
+        :type dec_inputs:
+        :param enc_inputs:  tensor([[1, 2, 3, 4, 0]])
+        :type enc_inputs:
+        :param enc_outputs:  形状 torch.Size([1, 5, 512])
+        :type enc_outputs:
+        :return:
+        :rtype:
+        """
+        # 和encoder一样，做单词嵌入和位置嵌入，相加后作为总的嵌入
+        dec_outputs = self.tgt_emb(dec_inputs) + self.pos_emb(torch.LongTensor([[5,1,2,3,4]]))
+        # 和encoder一样，计算哪些位置时padding的，计算注意力时，剔除掉这个padding的位置
+        dec_self_attn_pad_mask = get_attn_pad_mask(dec_inputs, dec_inputs)
+        # 上三角矩阵的注意力mask
+        dec_self_attn_subsequent_mask = get_attn_subsequent_mask(dec_inputs)
+        #
+        dec_self_attn_mask = torch.gt((dec_self_attn_pad_mask + dec_self_attn_subsequent_mask), 0)
+        # 
         dec_enc_attn_mask = get_attn_pad_mask(dec_inputs, enc_inputs)
 
         dec_self_attns, dec_enc_attns = [], []
@@ -358,8 +406,11 @@ class Transformer(nn.Module):
         """
         #先把源序列enc_inputs进行 encoder,
         enc_outputs, enc_self_attns = self.encoder(enc_inputs)
+        # encoder结束后得到encoder的向量和对应的attention值, 开始decoder
         dec_outputs, dec_self_attns, dec_enc_attns = self.decoder(dec_inputs, enc_inputs, enc_outputs)
+        #线性映射
         dec_logits = self.projection(dec_outputs) # dec_logits : [batch_size x src_vocab_size x tgt_vocab_size]
+        #
         return dec_logits.view(-1, dec_logits.size(-1)), enc_self_attns, dec_self_attns, dec_enc_attns
 
 def showgraph(attn):
