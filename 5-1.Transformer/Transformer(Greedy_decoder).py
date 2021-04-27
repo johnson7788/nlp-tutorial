@@ -8,6 +8,7 @@ import torch.nn as nn
 import torch.optim as optim
 import matplotlib.pyplot as plt
 
+# 多了greedy_decoder 界面阶段
 # S: Symbol that shows starting of decoding input
 # E: Symbol that shows starting of decoding output
 # P: Symbol that will fill in blank sequence if current batch data size is short than time steps
